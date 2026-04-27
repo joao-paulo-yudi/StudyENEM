@@ -10,9 +10,10 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/questions/years"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
+      start_period: 10s
       retries: 5
 
   frontend:

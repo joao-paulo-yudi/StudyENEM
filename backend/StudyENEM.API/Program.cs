@@ -11,6 +11,7 @@ builder.Services.AddScoped<ExamService>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddHealthChecks();
 builder.Services.AddCors(opt =>
     opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
@@ -26,5 +27,6 @@ using (var scope = app.Services.CreateScope())
 app.UseCors();
 app.UseSwagger();
 app.UseSwaggerUI();
+app.MapHealthChecks("/health");
 app.MapControllers();
 app.Run();
