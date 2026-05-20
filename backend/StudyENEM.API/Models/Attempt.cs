@@ -8,5 +8,7 @@ public class Attempt
     public DateTime? FinishedAt { get; set; }
     public int? Year { get; set; }
     public string? Area { get; set; }
+    public string Mode { get; set; } = "geral";
+    public int? TimeTakenSeconds { get; set; }
     public ICollection<AttemptAnswer> Answers { get; set; } = new List<AttemptAnswer>();
 }

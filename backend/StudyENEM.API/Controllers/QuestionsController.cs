@@ -9,8 +9,8 @@ namespace StudyENEM.API.Controllers;
 public class QuestionsController(ExamService service) : ControllerBase
 {
     [HttpGet]
-    public async Task<IActionResult> GetQuestions([FromQuery] int? year, [FromQuery] string? area) =>
-        Ok(await service.GetQuestionsAsync(year, area));
+    public async Task<IActionResult> GetQuestions([FromQuery] int? year, [FromQuery] string? area, [FromQuery] int? count) =>
+        Ok(await service.GetQuestionsAsync(year, area, count));
 
     [HttpGet("years")]
     public async Task<IActionResult> GetYears() =>

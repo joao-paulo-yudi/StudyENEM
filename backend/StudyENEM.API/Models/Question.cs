@@ -6,6 +6,8 @@ public class Question
     public int Year { get; set; }
     public string Area { get; set; } = string.Empty;
     public string Subject { get; set; } = string.Empty;
+    public string Topic { get; set; } = string.Empty;
+    public string Difficulty { get; set; } = "média";
     public string Statement { get; set; } = string.Empty;
     public string OptionA { get; set; } = string.Empty;
     public string OptionB { get; set; } = string.Empty;

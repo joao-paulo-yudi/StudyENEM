@@ -7,16 +7,31 @@ namespace StudyENEM.API.Services;
 
 public class ExamService(AppDbContext db)
 {
-    public async Task<List<QuestionDto>> GetQuestionsAsync(int? year, string? area)
+    public async Task<List<QuestionDto>> GetQuestionsAsync(int? year, string? area, int? count)
     {
         var query = db.Questions.AsQueryable();
         if (year.HasValue) query = query.Where(q => q.Year == year);
         if (!string.IsNullOrEmpty(area)) query = query.Where(q => q.Area == area);
 
-        return await query.Select(q => new QuestionDto(
-            q.Id, q.Year, q.Area, q.Subject, q.Statement,
+        var list = await query.Select(q => new QuestionDto(
+            q.Id, q.Year, q.Area, q.Subject, q.Topic, q.Difficulty, q.Statement,
             q.OptionA, q.OptionB, q.OptionC, q.OptionD, q.OptionE
         )).ToListAsync();
+
+        if (list.Count == 0) return list;
+
+        var rng = new Random();
+        list = list.OrderBy(_ => rng.Next()).ToList();
+
+        if (count.HasValue && count.Value > 0)
+        {
+            var result = new List<QuestionDto>(count.Value);
+            for (int i = 0; i < count.Value; i++)
+                result.Add(list[i % list.Count]);
+            return result;
+        }
+
+        return list;
     }
 
     public async Task<List<int>> GetAvailableYearsAsync() =>
@@ -32,7 +47,8 @@ public class ExamService(AppDbContext db)
             StudentName = dto.StudentName,
             StartedAt = DateTime.UtcNow,
             Year = dto.Year,
-            Area = dto.Area
+            Area = dto.Area,
+            Mode = string.IsNullOrEmpty(dto.Mode) ? "geral" : dto.Mode,
         };
         db.Attempts.Add(attempt);
         await db.SaveChangesAsync();
@@ -44,7 +60,7 @@ public class ExamService(AppDbContext db)
         var attempt = await db.Attempts.FindAsync(dto.AttemptId)
             ?? throw new KeyNotFoundException($"Attempt {dto.AttemptId} not found");
 
-        var questionIds = dto.Answers.Select(a => a.QuestionId).ToList();
+        var questionIds = dto.Answers.Select(a => a.QuestionId).Distinct().ToList();
         var questions = await db.Questions
             .Where(q => questionIds.Contains(q.Id))
             .ToDictionaryAsync(q => q.Id);
@@ -63,11 +79,13 @@ public class ExamService(AppDbContext db)
 
         db.AttemptAnswers.AddRange(answers);
         attempt.FinishedAt = DateTime.UtcNow;
+        attempt.TimeTakenSeconds = dto.TimeTakenSeconds;
         await db.SaveChangesAsync();
 
         var details = answers.Select(a => new AnswerResultDto(
             a.QuestionId,
             questions[a.QuestionId].Subject,
+            questions[a.QuestionId].Topic,
             questions[a.QuestionId].Area,
             a.SelectedOption,
             questions[a.QuestionId].CorrectOption,
@@ -92,7 +110,7 @@ public class ExamService(AppDbContext db)
         if (attempt == null || attempt.FinishedAt == null) return null;
 
         var details = attempt.Answers.Select(a => new AnswerResultDto(
-            a.QuestionId, a.Question.Subject, a.Question.Area,
+            a.QuestionId, a.Question.Subject, a.Question.Topic, a.Question.Area,
             a.SelectedOption, a.Question.CorrectOption, a.IsCorrect
         )).ToList();
 
@@ -114,6 +132,9 @@ public class ExamService(AppDbContext db)
             .ToListAsync();
 
         var allAnswers = attempts.SelectMany(a => a.Answers).ToList();
+        int totalQuestions = allAnswers.Count;
+        int totalCorrect = allAnswers.Count(a => a.IsCorrect);
+        int totalTimeSeconds = attempts.Sum(a => a.TimeTakenSeconds ?? 0);
 
         var byArea = allAnswers
             .GroupBy(a => a.Question.Area)
@@ -132,9 +153,28 @@ public class ExamService(AppDbContext db)
         var recent = attempts.Take(10).Select(a => new AttemptSummaryDto(
             a.Id, a.FinishedAt!.Value, a.Answers.Count, a.Answers.Count(ans => ans.IsCorrect),
             a.Answers.Count > 0 ? Math.Round((double)a.Answers.Count(ans => ans.IsCorrect) / a.Answers.Count * 100, 1) : 0,
-            a.Area
+            a.Area, a.Mode, a.TimeTakenSeconds
         )).ToList();
 
-        return new PerformanceSummaryDto(studentName, attempts.Count, byArea, bySubject, recent);
+        var studyPlan = allAnswers
+            .Where(a => !string.IsNullOrEmpty(a.Question.Topic))
+            .GroupBy(a => new { a.Question.Topic, a.Question.Area })
+            .Select(g =>
+            {
+                int total = g.Count();
+                int correct = g.Count(a => a.IsCorrect);
+                int mastery = total > 0 ? (int)Math.Round((double)correct / total * 100) : 0;
+                string priority = mastery < 40 ? "alta" : mastery < 60 ? "média" : "baixa";
+                string reason = $"{mastery}% de acertos em {total} questão{(total > 1 ? "ões" : "")} respondida{(total > 1 ? "s" : "")}";
+                return new StudyPlanItemDto(g.Key.Topic, g.Key.Area, priority, mastery, total, reason);
+            })
+            .OrderBy(t => t.Mastery)
+            .Take(12)
+            .ToList();
+
+        return new PerformanceSummaryDto(
+            studentName, attempts.Count, totalQuestions, totalCorrect, totalTimeSeconds,
+            byArea, bySubject, recent, studyPlan
+        );
     }
 }
