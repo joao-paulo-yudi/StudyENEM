@@ -8,6 +8,25 @@ Plataforma de apoio ao planejamento de estudos para o ENEM, baseada em Learning 
 - **Frontend**: Angular 17 (standalone components)
 - **Infra**: Docker + Docker Compose
 
+## Clonando o projeto
+
+> ⚠️ O backend e o frontend são **submódulos** Git. Clone com `--recurse-submodules` para trazer o código deles:
+
+```bash
+git clone --recurse-submodules https://github.com/joao-paulo-yudi/StudyENEM.git
+```
+
+Se você já clonou sem os submódulos:
+
+```bash
+git submodule update --init --recursive
+```
+
+Repositórios dos submódulos:
+
+- Backend: https://github.com/joao-paulo-yudi/StudyENEM-backend
+- Frontend: https://github.com/joao-paulo-yudi/StudyENEM-frontend
+
 ## Subir com Docker (recomendado)
 
 ```bash
