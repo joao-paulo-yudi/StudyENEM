@@ -1,14 +1,31 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: studyenem
+      POSTGRES_PASSWORD: studyenem
+      POSTGRES_DB: studyenem
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U studyenem -d studyenem"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
-    volumes:
-      - db_data:/app/data
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=studyenem;Username=studyenem;Password=studyenem
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
