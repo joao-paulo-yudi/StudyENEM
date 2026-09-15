@@ -13,7 +13,7 @@ Plataforma de apoio ao planejamento de estudos para o ENEM baseada em Learning A
 
 | Requisito | Implementação |
 |---|---|
-| RF01 | Cadastro e login por e-mail/senha com token JWT. Os botões Google/Microsoft estão na tela, mas a integração ainda não foi feita |
+| RF01 | Cadastro e login por e-mail/senha com token JWT e **login com a conta Google** (veja [Login com Google](#login-com-google)). O botão da Microsoft está na tela, mas a integração ainda não foi feita |
 | RF02 | Simulado **geral** no formato do ENEM (até a prova completa de 180 questões, na ordem do caderno) ou **focado** em uma área ou conteúdo; escolha da língua estrangeira |
 | RF03 / RF09 | Banco com a **prova completa do ENEM 2022** (185 questões com inglês e espanhol), organizado por área, disciplina, conteúdo, habilidade e ano, com gabarito oficial e dificuldade TRI |
 | RF04 | Correção automática com desempenho por área e por conteúdo (tabela `resultado`) |
@@ -91,6 +91,30 @@ Na primeira subida, o backend aplica as migrations: cria as tabelas e carrega o 
 
 Fora do ambiente de desenvolvimento, defina a chave dos tokens em um arquivo `.env` na raiz: `JWT_KEY=<ao menos 32 caracteres>`.
 
+## Login com Google
+
+O botão **Continuar com Google** usa o [Google Identity Services](https://developers.google.com/identity/gsi/web): o
+navegador obtém um *ID token* e o backend o valida em `POST /api/auth/google` (assinatura, emissor, validade e ID do
+cliente). O login é opcional — sem configuração, a tela mostra o botão decorativo e o acesso continua por e-mail e senha.
+
+1. No [Google Cloud Console](https://console.cloud.google.com/apis/credentials), crie uma credencial
+   **ID do cliente OAuth** do tipo *Aplicativo da Web*.
+2. Em **Origens JavaScript autorizadas**, informe as origens do frontend — `http://localhost:4200` (Docker e
+   `npm start`). Não é preciso configurar URIs de redirecionamento: o fluxo do GSI não usa redirect.
+3. Adicione o ID do cliente ao `.env` na raiz:
+
+   ```
+   GOOGLE_CLIENT_ID=<id>.apps.googleusercontent.com
+   ```
+
+   Em desenvolvimento local (`dotnet run`), a mesma configuração vale como variável de ambiente
+   `Google__ClientId` ou em `appsettings.json` (`{ "Google": { "ClientId": "..." } }`).
+
+O frontend descobre o ID do cliente em `GET /api/auth/config`, então trocá-lo não exige recompilar o Angular.
+
+Na primeira entrada, a conta Google cria o cadastro do estudante (sem senha local). Se já existir uma conta com o mesmo
+e-mail, ela é vinculada ao Google e passa a aceitar os dois modos de login.
+
 ## Banco de dados
 
 O esquema e o banco de questões são criados por **migrations do EF Core** (`backend/StudyENEM.API/Data/Migrations/`),
@@ -158,17 +182,17 @@ StudyENEM/
 │   ├── StudyENEM.API/
 │   │   ├── Controllers/        # Auth, Questions, Attempts, Dashboard
 │   │   ├── Data/               # AppDbContext (mapeamento para o DER), DatabaseInitializer, DemoSeed
-│   │   │   └── Migrations/     # CriacaoInicial, CargaEnem2022 e Sql/enem_2022.sql (carga das questões)
+│   │   │   └── Migrations/     # CriacaoInicial, CargaEnem2022 (+ Sql/enem_2022.sql) e LoginComGoogle
 │   │   ├── DTOs/
 │   │   ├── Infrastructure/     # filtro de exceções, claims do JWT
 │   │   ├── Models/             # entidades
-│   │   ├── Services/           # TriScorer, PerformanceCalculator, ExamService, DashboardService, ...
+│   │   ├── Services/           # TriScorer, PerformanceCalculator, ExamService, DashboardService, GoogleAuthService, ...
 │   │   └── wwwroot/midia/      # imagens das questões
 │   ├── StudyENEM.Tests/        # xUnit: validação da TRI e seleção de questões
 │   └── tools/enem-import/      # importador dos dados do ENEM (Python) que gera o SQL da carga
 ├── frontend/
 │   └── src/app/
-│       ├── core/               # ApiService, sessão JWT, interceptor, gráficos, formatação
+│       ├── core/               # ApiService, sessão JWT, interceptor, login com Google, gráficos, formatação
 │       ├── shared/             # chart, sidebar, pipe de Markdown
 │       └── features/           # login, home, simulado, resultado, desempenho, plano, questoes
 └── docker-compose.yml

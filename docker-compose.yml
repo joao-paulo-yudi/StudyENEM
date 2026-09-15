@@ -25,6 +25,9 @@ services:
       - ConnectionStrings__Default=Host=postgres;Port=5432;Database=studyenem;Username=studyenem;Password=studyenem
       # Chave de assinatura dos tokens JWT (mínimo 32 caracteres). Defina JWT_KEY no .env fora do ambiente de desenvolvimento.
       - Jwt__Key=${JWT_KEY:-studyenem-chave-docker-desenvolvimento-altere-em-producao}
+      # Login com Google (opcional): ID do cliente OAuth 2.0. Defina GOOGLE_CLIENT_ID no .env
+      # para habilitar o botão "Continuar com Google" na tela de login.
+      - Google__ClientId=${GOOGLE_CLIENT_ID:-}
     depends_on:
       postgres:
         condition: service_healthy
