@@ -3,7 +3,8 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: studyenem
-      POSTGRES_PASSWORD: studyenem
+      # Senha do banco: defina POSTGRES_PASSWORD no .env (veja .env.example). Sem ele, vale a de desenvolvimento.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-studyenem}
       POSTGRES_DB: studyenem
     volumes:
       - db_data:/var/lib/postgresql/data
@@ -22,7 +23,7 @@ services:
       - "8080:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=studyenem;Username=studyenem;Password=studyenem
+      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=studyenem;Username=studyenem;Password=${POSTGRES_PASSWORD:-studyenem}
       # Chave de assinatura dos tokens JWT (mínimo 32 caracteres). Defina JWT_KEY no .env fora do ambiente de desenvolvimento.
       - Jwt__Key=${JWT_KEY:-studyenem-chave-docker-desenvolvimento-altere-em-producao}
       # Login com Google (opcional): ID do cliente OAuth 2.0. Defina GOOGLE_CLIENT_ID no .env

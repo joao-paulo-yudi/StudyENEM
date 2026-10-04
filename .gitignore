@@ -15,5 +15,14 @@
 .DS_Store
 Thumbs.db
 
-# Variáveis locais do Docker Compose (JWT_KEY, DOCKER_BUILDKIT)
+# Variáveis locais do Docker Compose (senhas e chaves; o modelo versionado é o .env.example)
 .env
+
+# Registro local das subidas e resets da avaliação (scripts/avaliacao.sh)
+avaliacao-registro.log
+avaliacao-final.sql
+
+# Convites da avaliação remota: códigos (avaliacao/convites.txt) e o mapa gerado para o nginx
+avaliacao/convites.txt
+avaliacao/nginx/convites.conf
+avaliacao/credenciais-teste.md

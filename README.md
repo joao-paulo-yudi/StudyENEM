@@ -13,7 +13,7 @@ Plataforma de apoio ao planejamento de estudos para o ENEM baseada em Learning A
 
 | Requisito | Implementação |
 |---|---|
-| RF01 | Cadastro e login por e-mail/senha com token JWT e **login com a conta Google** (veja [Login com Google](#login-com-google)). O botão da Microsoft está na tela, mas a integração ainda não foi feita |
+| RF01 | Cadastro e login por e-mail/senha com token JWT e **login com a conta Google** (veja [Login com Google](#login-com-google)). A integração com a Microsoft ainda não foi feita, e o botão dela não é exibido |
 | RF02 | Simulado **geral** no formato do ENEM (até a prova completa de 180 questões, na ordem do caderno) ou **focado** em uma área ou conteúdo; escolha da língua estrangeira |
 | RF03 / RF09 | Banco com a **prova completa do ENEM 2022** (185 questões com inglês e espanhol), organizado por área, disciplina, conteúdo, habilidade e ano, com gabarito oficial e dificuldade TRI |
 | RF04 | Correção automática com desempenho por área e por conteúdo (tabela `resultado`) |
@@ -85,7 +85,7 @@ docker compose up --build
 
 - Frontend: http://localhost:4200
 - API: http://localhost:8080/api
-- Swagger: http://localhost:8080/swagger (use **Authorize** com o token de `POST /api/auth/login`)
+- Swagger: só no desenvolvimento local (`dotnet run`, veja abaixo); no Docker a API roda em `Production`
 - Conta de demonstração: `joao@studyenem.com` / `1234`. O histórico dela é gerado pelo próprio modelo da TRI, só para demonstrar os dashboards.
 
 Na primeira subida, o backend aplica as migrations: cria as tabelas e carrega o banco de questões (veja [Banco de dados](#banco-de-dados)).
@@ -114,27 +114,19 @@ Fora do ambiente de desenvolvimento, defina a chave dos tokens em um arquivo `.e
 
 ## Login com Google
 
-O botão **Continuar com Google** usa o [Google Identity Services](https://developers.google.com/identity/gsi/web): o
-navegador obtém um *ID token* e o backend o valida em `POST /api/auth/google` (assinatura, emissor, validade e ID do
-cliente). O login é opcional — sem configuração, a tela mostra o botão decorativo e o acesso continua por e-mail e senha.
+O login com a conta Google é opcional: o navegador obtém um *ID token* pelo Google Identity Services e o backend o
+valida em `POST /api/auth/google`. Sem configuração, a tela não mostra o botão e o acesso continua por e-mail e senha.
 
-1. No [Google Cloud Console](https://console.cloud.google.com/apis/credentials), crie uma credencial
-   **ID do cliente OAuth** do tipo *Aplicativo da Web*.
-2. Em **Origens JavaScript autorizadas**, informe as origens do frontend — `http://localhost:4200` (Docker e
-   `npm start`). Não é preciso configurar URIs de redirecionamento: o fluxo do GSI não usa redirect.
-3. Adicione o ID do cliente ao `.env` na raiz:
+Para habilitar, defina `GOOGLE_CLIENT_ID` no `.env` (Docker) ou nos user-secrets (`dotnet run`). O passo a passo do
+Google Cloud Console, as origens a cadastrar e o comportamento de vínculo de contas estão em
+[docs/LOGIN_GOOGLE.md](docs/LOGIN_GOOGLE.md).
 
-   ```
-   GOOGLE_CLIENT_ID=<id>.apps.googleusercontent.com
-   ```
+## Avaliação remota
 
-   Em desenvolvimento local (`dotnet run`), a mesma configuração vale como variável de ambiente
-   `Google__ClientId` ou em `appsettings.json` (`{ "Google": { "ClientId": "..." } }`).
-
-O frontend descobre o ID do cliente em `GET /api/auth/config`, então trocá-lo não exige recompilar o Angular.
-
-Na primeira entrada, a conta Google cria o cadastro do estudante (sem senha local). Se já existir uma conta com o mesmo
-e-mail, ela é vinculada ao Google e passa a aceitar os dois modos de login.
+Para publicar a plataforma desta máquina durante a avaliação heurística, há um ambiente separado: um override do
+Compose com nginx como entrada única (acesso aberto, com portão de convite opcional), Tailscale Funnel (URL https gratuita, sem domínio) e as
+contas demo01..demoNN, todas com o mesmo histórico.
+Ele é operado por `scripts/avaliacao.sh`. O passo a passo está em [docs/AVALIACAO_REMOTA.md](docs/AVALIACAO_REMOTA.md).
 
 ## Banco de dados
 
@@ -170,6 +162,10 @@ dotnet ef migrations add <Nome> --project StudyENEM.API --output-dir Data/Migrat
 cd backend/StudyENEM.API
 dotnet run            # requer PostgreSQL em localhost:5432 (usuário/senha/banco: studyenem); aplica as migrations na subida
 ```
+
+O `Properties/launchSettings.json` sobe a API em `http://localhost:8080` no ambiente `Development`, o único em que
+ficam ligados o Swagger (http://localhost:8080/swagger — use **Authorize** com o token de `POST /api/auth/login`) e o
+CORS para o `ng serve` em `http://localhost:4200`.
 
 ### Testes
 

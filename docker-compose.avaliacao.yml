@@ -1,0 +1,76 @@
+# Ambiente da avaliação heurística remota. Usado em conjunto com o docker-compose.yml, de
+# preferência pelo script scripts/avaliacao.sh, que já passa os dois arquivos:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.avaliacao.yml up -d --build
+#
+# O nome de projeto próprio isola containers e volume do banco do ambiente Docker de
+# desenvolvimento: o banco da avaliação não se mistura com o da conta joao@.
+#
+# Todos os serviços voltam sozinhos depois de uma falha ou de um reinício da máquina
+# (restart: unless-stopped; o Docker precisa estar habilitado no boot).
+name: studyenem-avaliacao
+
+services:
+  postgres:
+    restart: unless-stopped
+    environment:
+      # Obrigatório na avaliação: sem POSTGRES_PASSWORD no .env, o Compose recusa subir.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env (veja .env.example)}
+
+  backend:
+    restart: unless-stopped
+    # A API só é acessível pelo nginx do frontend (rede interna do Compose).
+    ports: !reset []
+    environment:
+      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=studyenem;Username=studyenem;Password=${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      - Jwt__Key=${JWT_KEY:?defina JWT_KEY no .env (veja .env.example)}
+      # Login com Google: o mesmo GOOGLE_CLIENT_ID do .env (origem https://<máquina>.ts.net cadastrada
+      # no Google Cloud). Para desligá-lo só na avaliação, defina AVALIACAO_GOOGLE_CLIENT_ID= (vazio) no .env.
+      - Google__ClientId=${AVALIACAO_GOOGLE_CLIENT_ID-${GOOGLE_CLIENT_ID:-}}
+      # Contas demo01..demoNN, todas com o mesmo histórico; a conta joao@ não é criada aqui.
+      - Demo__Accounts=${DEMO_ACCOUNTS:-5}
+      - Demo__Password=${DEMO_PASSWORD:?defina DEMO_PASSWORD no .env (veja .env.example)}
+
+  frontend:
+    restart: unless-stopped
+    # Único ponto de entrada. Fica preso ao loopback: o acesso externo é pelo túnel.
+    ports: !override
+      - "127.0.0.1:${APP_PORT:-8088}:80"
+    # Portão de convite: sem o cookie de um link de convite válido, a aplicação responde 403.
+    # O convites.conf é gerado pelo scripts/avaliacao.sh a partir de avaliacao/convites.txt.
+    volumes:
+      - ./avaliacao/nginx/server:/etc/nginx/avaliacao:ro
+      - ./avaliacao/nginx/convites.conf:/etc/nginx/conf.d/convites.conf:ro
+
+  # Publicação na internet, por conexão de saída (nenhuma porta aberta no roteador). Um dos dois
+  # perfis fica ativo, conforme TUNNEL no .env ("funnel" ou "quick"), escolhido pelo scripts/avaliacao.sh.
+
+  # Tailscale Funnel: URL estável https://studyenem.<tailnet>.ts.net, mantida entre reinícios
+  # pelo volume de estado. O primeiro login usa TS_AUTHKEY; depois a chave não é mais usada.
+  tailscale:
+    image: tailscale/tailscale:v1.102.5
+    profiles: [funnel]
+    hostname: studyenem
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:-}
+      TS_AUTH_ONCE: "true"
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "true"
+      TS_SERVE_CONFIG: /config/serve.json
+    volumes:
+      - tailscale_state:/var/lib/tailscale
+      - ./avaliacao/tailscale/serve.json:/config/serve.json:ro
+    depends_on: [frontend]
+
+  # Quick tunnel da Cloudflare: URL aleatória em trycloudflare.com, sem conta. A URL muda a cada
+  # reinício do container: serve para testes e como plano B, com novo link aos avaliadores.
+  tunnel-quick:
+    image: cloudflare/cloudflared:2026.9.3
+    profiles: [quick]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://frontend:80
+    depends_on: [frontend]
+
+volumes:
+  tailscale_state:
