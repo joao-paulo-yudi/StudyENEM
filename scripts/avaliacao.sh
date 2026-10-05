@@ -12,6 +12,10 @@ INVITES_NGINX=avaliacao/nginx/convites.conf
 
 env_get() { if [ -f .env ]; then grep -E "^$1=" .env | tail -1 | cut -d= -f2- || true; fi; }
 
+# Docker que roda a avaliação: "default" é o Docker Engine do sistema, que sobe no boot sem login (o
+# Docker Desktop só inicia depois que alguém entra na sessão). Vazio: o contexto atual da CLI.
+ctx=$(env_get DOCKER_CONTEXT_AVALIACAO); [ -n "$ctx" ] && export DOCKER_CONTEXT=$ctx
+
 # TUNNEL=funnel no .env: Tailscale Funnel (URL estável). Vazio ou "quick": quick tunnel da Cloudflare
 # (URL temporária, para teste ou plano B).
 if [ "$(env_get TUNNEL)" = funnel ]; then
@@ -128,7 +132,14 @@ status() {
 preflight() {
   FAILED=0
   echo "Máquina"
-  [ "$(systemctl is-enabled docker 2>/dev/null)" = enabled ] && ok "Docker sobe com o sistema" || fail "Docker não sobe com o sistema: sudo systemctl enable docker"
+  # Verifica o Docker que de fato roda a stack: o Docker Desktop só inicia depois do login na sessão.
+  if [ "$(docker context show 2>/dev/null)" = desktop-linux ]; then
+    [ "$(systemctl --user is-enabled docker-desktop 2>/dev/null)" = enabled ] && ok "Docker Desktop inicia sozinho no login" \
+      || fail "Docker Desktop não inicia sozinho: systemctl --user enable docker-desktop"
+    warn "Docker Desktop só sobe depois que alguém entra na sessão: após um reinício, a URL fica fora do ar até o login (runbook 1.1)"
+  else
+    [ "$(systemctl is-enabled docker 2>/dev/null)" = enabled ] && ok "Docker Engine sobe com o sistema, sem login" || fail "Docker não sobe com o sistema: sudo systemctl enable docker"
+  fi
   if command -v gsettings >/dev/null; then
     s=$(gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 2>/dev/null || true)
     [ "$s" = "'nothing'" ] && ok "sem suspensão automática na tomada" \

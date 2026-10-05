@@ -39,9 +39,14 @@ Esse arquivo não é versionado.
 Na avaliação assíncrona, ninguém avisa que o link caiu: o avaliador só desiste da tarefa. A máquina precisa
 ficar ligada, acordada e conectada durante as duas semanas.
 
-- **Docker no boot:** `systemctl is-enabled docker` deve responder `enabled`. Se não responder:
-  `sudo systemctl enable docker`. Com isso e com `restart: unless-stopped`, os containers voltam sozinhos depois de
-  um reinício.
+- **Docker após um reinício.** Confira qual Docker roda a stack com `docker context show`:
+  - `desktop-linux` (Docker Desktop): ele só inicia **depois que alguém entra na sessão** e, por padrão, nem assim.
+    Habilite com `systemctl --user enable docker-desktop`. Mesmo assim, depois de um reinício a URL fica fora do ar
+    até o login.
+  - `default` (Docker Engine do sistema): sobe no boot, sem login. `systemctl is-enabled docker` deve responder
+    `enabled`. É o recomendado para a coleta.
+
+  Em ambos os casos, `restart: unless-stopped` faz os containers voltarem sozinhos assim que o Docker sobe.
 - **Sem suspensão automática.** Por padrão, o GNOME suspende a máquina depois de 30 min ociosa, **mesmo na
   tomada**. Para desligar:
   ```bash
@@ -72,6 +77,7 @@ Crie o `.env` a partir do `.env.example` (`cp .env.example .env`) e preencha:
 | `JWT_KEY` | `openssl rand -hex 32` |
 | `DEMO_ACCOUNTS` | quantidade de contas demoNN e de convites de avaliador (padrão 5) |
 | `DEMO_PASSWORD` | senha única das contas demoNN, entregue aos avaliadores |
+| `DOCKER_CONTEXT_AVALIACAO` | `default`: a avaliação roda no Docker Engine do sistema, que sobe no boot sem login (seção 1.1) |
 | `TUNNEL` | `funnel` (Tailscale, URL estável). `quick` só para teste ou plano B (seção 2) |
 | `ACESSO_RESTRITO` | `false` (padrão, aberto a qualquer pessoa) ou `true` (exige link de convite, seção 1.4) |
 | `TS_AUTHKEY` | chave de autenticação do Tailscale, usada só no primeiro `up` (seção 1.3) |
@@ -295,6 +301,7 @@ Comece sempre por `scripts/avaliacao.sh status`, que aponta a camada com problem
 | Logs do Tailscale falam em Funnel não permitido | Falta o atributo `funnel` na política ou o HTTPS no tailnet (seção 1.3, passos 3 e 4). |
 | Funnel fora do ar por muito tempo | Plano B (seção 2): `TUNNEL=quick` no `.env`, `scripts/avaliacao.sh up`, `scripts/avaliacao.sh convites` e reenvie os links. Volte a `TUNNEL=funnel` quando normalizar e reenvie os links originais. |
 | Avaliador vê "Acesso restrito" (só com `ACESSO_RESTRITO=true`) | Abriu a URL sem o código, usou outro navegador ou o cookie expirou (30 dias). Ele deve abrir o link de convite de novo. Se continuar, confira se o código dele ainda está em `avaliacao/convites.txt`. |
+| Logo depois de subir ou reiniciar, a URL responde só às vezes | Normal nos primeiros 2 a 3 minutos: o Funnel tem mais de um servidor de entrada, e um deles demora a reconhecer o nó. Espere e rode `status` de novo. |
 | A máquina reiniciou | Nada a fazer se o Docker sobe no boot: os containers voltam sozinhos. Confirme com `status`. |
 | A máquina desligou (bateria acabou) | Ligue, entre na sessão e rode `status`. O que ficou fora do ar é perdido: avise os avaliadores afetados se o intervalo foi longo. |
 | Avaliador diz que "a página não carrega" e o `status` está OK | Peça o horário e um print. Confira `logs frontend` e `logs backend` nesse horário. Também pode ser a rede dele bloqueando `ts.net`. |

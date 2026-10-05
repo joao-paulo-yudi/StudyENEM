@@ -103,8 +103,11 @@ Total: 71 → 72 testes, todos passando.
 
 ## Fora dos repositórios (configuração desta máquina e de contas)
 
-- `.env`: segredos gerados (`POSTGRES_PASSWORD`, `JWT_KEY`), `DEMO_PASSWORD`, `GOOGLE_CLIENT_ID`, `TUNNEL=funnel` e
-  `ACESSO_RESTRITO=false`.
+- `.env`: segredos gerados (`POSTGRES_PASSWORD`, `JWT_KEY`), `DEMO_PASSWORD`, `GOOGLE_CLIENT_ID`, `TUNNEL=funnel`,
+  `ACESSO_RESTRITO=false` e `DOCKER_CONTEXT_AVALIACAO=default`.
+- Docker: usuário no grupo `docker`. A avaliação roda no Docker Engine do sistema, que sobe no boot sem login, e não
+  no Docker Desktop. O login do Tailscale foi copiado do volume do Desktop, mantendo a URL. O Docker Desktop inicia
+  no login (`systemctl --user enable docker-desktop`), para o ambiente de desenvolvimento.
 - Tailscale:
   - máquina `studyenem` no tailnet `tail8c88d4.ts.net`;
   - HTTPS ligado;
