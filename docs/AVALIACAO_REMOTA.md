@@ -23,6 +23,7 @@ convite é opcional (seção 1.4).
 | `scripts/avaliacao.sh preflight` | checklist da máquina e da configuração, seguido do `status` |
 | `scripts/avaliacao.sh convites` | aplica o modo de acesso e lista os links de convite (usados só com acesso restrito) |
 | `scripts/avaliacao.sh url` | URL pública atual |
+| `scripts/avaliacao.sh religar` | **se a URL parar:** sobe o que estiver parado, reinicia a publicação e espera voltar |
 | `scripts/avaliacao.sh reset` | volta ao estado inicial **sem derrubar a publicação** |
 | `scripts/avaliacao.sh logs [serviço]` | logs ao vivo (`backend`, `frontend`, `tailscale`…) |
 | `scripts/avaliacao.sh down` | para tudo e mantém o banco e o login do Tailscale |
@@ -292,11 +293,16 @@ scripts/avaliacao.sh ps              # estado e tempo no ar de cada serviço
 
 Comece sempre por `scripts/avaliacao.sh status`, que aponta a camada com problema.
 
+**Atalho para quase tudo:** `scripts/avaliacao.sh religar`. Ele sobe os serviços parados, reinicia a publicação e
+espera até a URL responder em todos os servidores de entrada (normalmente de 30 segundos a 4 minutos). Ele não toca
+no banco nem nas contas. Se a máquina estiver desligada, basta ligá-la: o Docker Engine sobe no boot e traz tudo de
+volta sozinho, sem login.
+
 | Sintoma | O que fazer |
 |---|---|
 | `/health` responde `Unhealthy` (503) | A API está no ar, mas não alcança o banco. Veja `scripts/avaliacao.sh logs postgres` e rode `scripts/avaliacao.sh up`. |
 | Algum serviço "não está rodando" | `scripts/avaliacao.sh up`. Se ele cair de novo, veja `scripts/avaliacao.sh logs <serviço>`. |
-| Local OK, URL pública sem resposta | O Funnel caiu. Confira a internet da máquina e veja `scripts/avaliacao.sh logs tailscale`. Para reiniciar só a publicação: `docker restart studyenem-avaliacao-tailscale-1`. |
+| Local OK, URL pública sem resposta ou intermitente | Os servidores de entrada do Funnel perderam o nó, o que costuma acontecer depois de uma oscilação da internet. Rode `scripts/avaliacao.sh religar`. Se não voltar, confira a internet da máquina e `scripts/avaliacao.sh logs tailscale`. |
 | `status` diz "sem URL pública" ou os logs do Tailscale pedem login | O login expirou ou a máquina foi removida no painel. Gere uma chave nova (seção 1.3, passo 1), coloque em `TS_AUTHKEY`, rode `docker volume rm studyenem-avaliacao_tailscale_state` com o container parado e depois `scripts/avaliacao.sh up`. |
 | Logs do Tailscale falam em Funnel não permitido | Falta o atributo `funnel` na política ou o HTTPS no tailnet (seção 1.3, passos 3 e 4). |
 | Funnel fora do ar por muito tempo | Plano B (seção 2): `TUNNEL=quick` no `.env`, `scripts/avaliacao.sh up`, `scripts/avaliacao.sh convites` e reenvie os links. Volte a `TUNNEL=funnel` quando normalizar e reenvie os links originais. |

@@ -86,6 +86,15 @@ invites_build() {
 
 first_invite() { awk '$1=="organizador"{print $2; exit}' "$INVITES" 2>/dev/null; }
 
+# Testa o /health por cada servidor de entrada (IPv4) da URL pública. O DNS alterna entre eles, então um
+# servidor que não alcança o nó deixa o acesso intermitente. Imprime "<ip>:<código>" por servidor.
+ingress_check() {
+  local url=$1 host ip; host=${url#https://}
+  for ip in $(getent ahostsv4 "$host" | awk '{print $1}' | sort -u); do
+    printf '%s:%s ' "$ip" "$(curl -s -o /dev/null -m 10 -w '%{http_code}' --resolve "$host:443:$ip" "$url/health" || true)"
+  done
+}
+
 ok() { printf '  \033[32mOK\033[0m    %s\n' "$*"; }
 fail() { printf '  \033[31mFALHA\033[0m %s\n' "$*"; FAILED=1; }
 warn() { printf '  \033[33mAVISO\033[0m %s\n' "$*"; }
@@ -124,6 +133,12 @@ status() {
     resp=$(curl -s -m 20 -w $'\n%{http_code}' "$url/health" || true)
     code=${resp##*$'\n'}; body=${resp%$'\n'*}
     [ "$body" = Healthy ] && ok "$url/health: Healthy" || fail "$url/health: ${body:-sem resposta} ($code)"
+    if [ "$MODE" = funnel ]; then
+      checks=$(ingress_check "$url")
+      echo "$checks" | grep -qvE '(^| )[^ ]+:[^2][^ ]*' && [ -n "$checks" ] \
+        && ok "servidores de entrada: $checks" \
+        || fail "servidores de entrada: ${checks:-nenhum}(algum sem 200: rode scripts/avaliacao.sh religar)"
+    fi
   fi
 
   [ "$FAILED" = 0 ] && echo "Tudo no ar." || { echo "Há falhas: veja 'Se algo cair' em docs/AVALIACAO_REMOTA.md."; return 1; }
@@ -193,6 +208,22 @@ case "${1:-}" in
       echo "O Tailscale não está autenticado: defina TS_AUTHKEY no .env (docs/AVALIACAO_REMOTA.md, seção 1.3) e rode up de novo."
     fi
     [ "$MODE" = quick ] && echo "(quick tunnel: URL temporária, não envie aos avaliadores)" || true ;;
+  religar)
+    # Recuperação manual: sobe o que estiver parado e reinicia a publicação, sem tocar no banco.
+    compose up -d
+    compose restart "$TUNNEL"
+    record "religar (túnel $MODE)"
+    echo "Publicação reiniciada. Aguardando a URL pública responder em todos os servidores de entrada (até 6 min)..."
+    for _ in $(seq 1 36); do
+      url=$(public_url)
+      if [ -n "$url" ]; then
+        checks=$(ingress_check "$url")
+        if [ -n "$checks" ] && ! echo "$checks" | grep -qE '(^| )[^ ]+:[^2][^ ]*'; then echo "No ar: $url ($checks)"; exit 0; fi
+      fi
+      sleep 10
+    done
+    echo "A URL ainda não responde em todos os servidores (${checks:-sem URL}). Veja docs/AVALIACAO_REMOTA.md, seção 8."
+    exit 1 ;;
   down)      compose_all down; record "down" ;;   # mantém os volumes (banco e login do Tailscale)
   seed)      demo seed ;;
   reset)     demo reset; record "reset" ;;
@@ -211,6 +242,7 @@ Uso: scripts/avaliacao.sh <comando>
   preflight  checklist antes da coleta: máquina, configuração e status
   convites   cria os convites que faltam, recarrega o nginx e lista os links por avaliador
   url        mostra a URL pública
+  religar    se a URL parar: sobe o que estiver parado, reinicia a publicação e espera voltar (até 6 min)
   reset      volta ao estado inicial sem derrubar o túnel (registrado em avaliacao-registro.log)
   seed       cria as contas demoNN e os históricos que faltam; não altera o que já existe
   logs       acompanha os logs (opcional: serviço, ex.: logs backend)
