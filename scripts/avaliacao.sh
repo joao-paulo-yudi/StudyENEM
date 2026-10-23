@@ -155,14 +155,11 @@ preflight() {
   else
     [ "$(systemctl is-enabled docker 2>/dev/null)" = enabled ] && ok "Docker Engine sobe com o sistema, sem login" || fail "Docker não sobe com o sistema: sudo systemctl enable docker"
   fi
-  if command -v gsettings >/dev/null; then
-    s=$(gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 2>/dev/null || true)
-    [ "$s" = "'nothing'" ] && ok "sem suspensão automática na tomada" \
-      || fail "a máquina suspende sozinha na tomada ($s): gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing'"
+  if [ "$(systemctl --user is-active studyenem-acordado.service 2>/dev/null)" = active ]; then
+    ok "suspensão (inatividade, bateria e tampa) bloqueada pelo vigia"
+  else
+    fail "o notebook pode suspender (inatividade na bateria, tampa fechada) e derrubar a URL: scripts/avaliacao.sh vigia on"
   fi
-  lid=$(systemd-analyze cat-config systemd/logind.conf 2>/dev/null | grep -E '^HandleLidSwitchExternalPower=' | tail -1 | cut -d= -f2 || true)
-  [ "$lid" = ignore ] && ok "fechar a tampa na tomada não suspende" \
-    || warn "fechar a tampa pode suspender (HandleLidSwitchExternalPower=${lid:-padrão}): mantenha a tampa aberta ou veja o runbook"
 
   echo "Configuração"
   for v in POSTGRES_PASSWORD JWT_KEY DEMO_PASSWORD; do
@@ -224,6 +221,87 @@ case "${1:-}" in
     done
     echo "A URL ainda não responde em todos os servidores (${checks:-sem URL}). Veja docs/AVALIACAO_REMOTA.md, seção 8."
     exit 1 ;;
+  vigiar)
+    # Uma verificação, chamada pelo timer studyenem-vigia (a cada 1 min). Depois de 2 falhas seguidas do
+    # acesso público, religa. Sem internet na máquina, não faz nada: religar não adiantaria.
+    state=avaliacao/.vigia-falhas
+    # Fora da tomada, a URL cai quando a bateria acabar: avisa na tela e registra, uma vez por mudança.
+    ac=$(cat /sys/class/power_supply/A{C,DP}*/online 2>/dev/null | head -1 || true)
+    if [ -n "$ac" ] && [ "$ac" != "$(cat avaliacao/.vigia-energia 2>/dev/null)" ]; then
+      echo "$ac" > avaliacao/.vigia-energia
+      if [ "$ac" = 0 ]; then
+        record "vigia: notebook fora da tomada (bateria $(cat /sys/class/power_supply/BAT*/capacity 2>/dev/null | head -1)%)"
+        notify-send -u critical "StudyENEM: notebook fora da tomada" \
+          "A avaliação está publicada desta máquina. Quando a bateria acabar, o site cai. Ligue na tomada." 2>/dev/null || true
+      else
+        record "vigia: notebook na tomada"
+      fi
+    fi
+    url=$(public_url); checks=""; [ -n "$url" ] && checks=$(ingress_check "$url")
+    if [ -n "$checks" ] && ! echo "$checks" | grep -qE '(^| )[^ ]+:[^2][^ ]*'; then echo 0 > "$state"; exit 0; fi
+    curl -s -o /dev/null -m 10 https://controlplane.tailscale.com || { echo "sem internet; nada a fazer"; exit 0; }
+    fails=$(( $(cat "$state" 2>/dev/null || echo 0) + 1 )); echo "$fails" > "$state"
+    echo "acesso público falhou ($fails seguida(s)): ${checks:-sem URL}"
+    # Depois de uma religação, espera 10 min antes de outra: após muito tempo offline, o Tailscale leva
+    # alguns minutos para republicar o DNS da URL, e reiniciá-lo de novo só atrasaria isso.
+    last=$(cat avaliacao/.vigia-ultima 2>/dev/null || echo 0)
+    if [ "$fails" -ge 2 ] && [ $(( $(date +%s) - last )) -lt 600 ]; then
+      echo "religado há menos de 10 min; aguardando o Tailscale"; exit 0
+    fi
+    if [ "$fails" -ge 2 ]; then
+      date +%s > avaliacao/.vigia-ultima
+      record "vigia: acesso público falhou ${fails}x (${checks:-sem URL}), religando"
+      echo 0 > "$state"
+      "$0" religar && record "vigia: no ar de novo" || record "vigia: religar não resolveu"
+    fi ;;
+  vigia)
+    # Liga/desliga o timer do systemd do usuário que roda "vigiar" a cada minuto, inclusive sem login
+    # (linger), já que a avaliação roda no Docker Engine, que sobe no boot.
+    units=~/.config/systemd/user
+    case "${2:-}" in
+      on)
+        mkdir -p "$units"
+        cat > "$units/studyenem-vigia.service" <<UNIT
+[Unit]
+Description=StudyENEM avaliação: religa a URL pública se ela parar de responder
+[Service]
+Type=oneshot
+WorkingDirectory=$PWD
+ExecStart=$PWD/scripts/avaliacao.sh vigiar
+UNIT
+        cat > "$units/studyenem-vigia.timer" <<UNIT
+[Unit]
+Description=StudyENEM avaliação: verificação da URL pública a cada minuto
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=1min
+[Install]
+WantedBy=timers.target
+UNIT
+        # Notebook acordado: bloqueia a suspensão (por inatividade, na bateria ou na tomada) e a ação de
+        # fechar a tampa enquanto a avaliação estiver no ar. A tela ainda apaga e bloqueia normalmente.
+        cat > "$units/studyenem-acordado.service" <<UNIT
+[Unit]
+Description=StudyENEM avaliação: impede o notebook de suspender (inatividade e tampa)
+[Service]
+ExecStart=/usr/bin/systemd-inhibit --what=sleep:handle-lid-switch --who=StudyENEM --why="Avaliação remota publicada a partir desta máquina" --mode=block /usr/bin/sleep infinity
+Restart=always
+RestartSec=10
+[Install]
+WantedBy=default.target
+UNIT
+        loginctl enable-linger "$USER"
+        systemctl --user daemon-reload
+        systemctl --user enable --now studyenem-vigia.timer studyenem-acordado.service
+        record "vigia ligado (religação automática e notebook acordado)"
+        echo "Vigia ligado: $(systemctl --user list-timers studyenem-vigia.timer --no-legend | awk '{print "próxima verificação", $1, $2, $3}')" ;;
+      off)
+        systemctl --user disable --now studyenem-vigia.timer studyenem-acordado.service 2>/dev/null || true
+        record "vigia desligado"; echo "Vigia desligado: sem religação automática, e o notebook volta a suspender normalmente." ;;
+      *)
+        systemctl --user status studyenem-vigia.timer --no-pager 2>/dev/null | head -4 || true
+        echo "Uso: scripts/avaliacao.sh vigia on|off" ;;
+    esac ;;
   down)      compose_all down; record "down" ;;   # mantém os volumes (banco e login do Tailscale)
   seed)      demo seed ;;
   reset)     demo reset; record "reset" ;;
@@ -242,6 +320,7 @@ Uso: scripts/avaliacao.sh <comando>
   preflight  checklist antes da coleta: máquina, configuração e status
   convites   cria os convites que faltam, recarrega o nginx e lista os links por avaliador
   url        mostra a URL pública
+  vigia on   religação automática (verifica a cada minuto) e notebook sem suspender; "vigia off" desfaz
   religar    se a URL parar: sobe o que estiver parado, reinicia a publicação e espera voltar (até 6 min)
   reset      volta ao estado inicial sem derrubar o túnel (registrado em avaliacao-registro.log)
   seed       cria as contas demoNN e os históricos que faltam; não altera o que já existe

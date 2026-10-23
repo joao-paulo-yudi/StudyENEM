@@ -72,7 +72,11 @@ de operação está em [AVALIACAO_REMOTA.md](AVALIACAO_REMOTA.md), e o do login 
 - contas `demo01..demoNN` (`Demo__Accounts`, `Demo__Password`) só na avaliação, e `joao@` só no desenvolvimento;
 - histórico **por conta**, com semente fixa e questões ordenadas: todas as contas são idênticas;
 - MT é claramente a área mais fraca, e Eletricidade e magnetismo (CN) é o conteúdo prioritário isolado;
-- `Reset` apaga simulados e contas fora da lista demo, mantendo os ids das demos, e se recusa a rodar no desenvolvimento.
+- `Reset` apaga simulados e contas fora da lista demo, mantendo os ids das demos, e se recusa a rodar no desenvolvimento;
+- contas extras (`Demo__ExtraAccounts`, `email|senha|nome`) com o mesmo histórico, preservadas pelo reset. Usada para a
+  conta da feira de ciências e para dar senha própria a demo02..demo05;
+- o seed aplica nome e senha configurados às contas de demonstração que já existem (sem mexer no histórico), para
+  que uma senha nova no `.env` valha sem `reset`.
 
 Total: 71 → 72 testes, todos passando.
 
@@ -105,6 +109,8 @@ Total: 71 → 72 testes, todos passando.
 
 - `.env`: segredos gerados (`POSTGRES_PASSWORD`, `JWT_KEY`), `DEMO_PASSWORD`, `GOOGLE_CLIENT_ID`, `TUNNEL=funnel`,
   `ACESSO_RESTRITO=false` e `DOCKER_CONTEXT_AVALIACAO=default`.
+- Religação automática: timer `studyenem-vigia` no systemd do usuário (`~/.config/systemd/user`), com *linger*
+  habilitado para rodar sem login. Liga e desliga com `scripts/avaliacao.sh vigia on|off`.
 - Docker: usuário no grupo `docker`. A avaliação roda no Docker Engine do sistema, que sobe no boot sem login, e não
   no Docker Desktop. O login do Tailscale foi copiado do volume do Desktop, mantendo a URL. O Docker Desktop inicia
   no login (`systemctl --user enable docker-desktop`), para o ambiente de desenvolvimento.

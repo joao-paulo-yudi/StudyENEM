@@ -23,6 +23,7 @@ convite é opcional (seção 1.4).
 | `scripts/avaliacao.sh preflight` | checklist da máquina e da configuração, seguido do `status` |
 | `scripts/avaliacao.sh convites` | aplica o modo de acesso e lista os links de convite (usados só com acesso restrito) |
 | `scripts/avaliacao.sh url` | URL pública atual |
+| `scripts/avaliacao.sh vigia on` | religação automática: verifica a URL a cada minuto e roda o `religar` sozinho (`vigia off` desliga) |
 | `scripts/avaliacao.sh religar` | **se a URL parar:** sobe o que estiver parado, reinicia a publicação e espera voltar |
 | `scripts/avaliacao.sh reset` | volta ao estado inicial **sem derrubar a publicação** |
 | `scripts/avaliacao.sh logs [serviço]` | logs ao vivo (`backend`, `frontend`, `tailscale`…) |
@@ -48,18 +49,21 @@ ficar ligada, acordada e conectada durante as duas semanas.
     `enabled`. É o recomendado para a coleta.
 
   Em ambos os casos, `restart: unless-stopped` faz os containers voltarem sozinhos assim que o Docker sobe.
-- **Sem suspensão automática.** Por padrão, o GNOME suspende a máquina depois de 30 min ociosa, **mesmo na
-  tomada**. Para desligar:
-  ```bash
-  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing'
-  ```
-  Para desfazer depois da coleta: `gsettings reset org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type`.
-- **Tampa do notebook.** Fechar a tampa suspende a máquina. Mantenha a tampa aberta ou configure o sistema para
-  ignorar o fechamento na tomada. A configuração passa a valer no próximo boot:
-  ```bash
-  sudo mkdir -p /etc/systemd/logind.conf.d
-  printf '[Login]\nHandleLidSwitchExternalPower=ignore\n' | sudo tee /etc/systemd/logind.conf.d/avaliacao.conf
-  ```
+- **Sem suspensão.** Um notebook dormindo derruba a URL, e com ele parado nada roda, nem a religação automática.
+  `scripts/avaliacao.sh vigia on` mantém um bloqueio do systemd (`systemd-inhibit`, serviço `studyenem-acordado`)
+  que impede a suspensão por inatividade, **inclusive na bateria**, e ao **fechar a tampa**, sem `sudo`. A tela ainda
+  apaga e bloqueia normalmente. `vigia off` desfaz. Cuidados com o bloqueio ligado:
+  - **fora da tomada, a URL cai quando a bateria acaba.** No nível crítico, o sistema força uma suspensão de
+    emergência que ignora o bloqueio, de propósito. Com o bloqueio, o notebook nem dorme antes, então a bateria vai
+    até o fim. Quando ele sai da tomada, o vigia mostra uma notificação na tela e registra em
+    `avaliacao-registro.log`;
+  - depois de muitas horas offline, a URL leva cerca de 10 minutos para voltar, porque o Tailscale republica o DNS.
+    O vigia espera 10 minutos entre religações para não atrapalhar;
+  - o Docker Desktop (máquina virtual) consome bateria mesmo sem containers. Deixe-o fechado durante a coleta; a
+    avaliação roda no Docker Engine;
+  - não o guarde fechado numa mochila: ele não dorme e esquenta;
+  - ao levar o notebook de uma rede para outra (de casa para o IF, por exemplo), a URL fica fora durante o trajeto.
+    Ao chegar, a religação automática a traz de volta em poucos minutos.
 - **Queda de energia.** A bateria do notebook segura a máquina, mas o roteador cai. Quando a energia volta, o
   Tailscale reconecta sozinho. Se a máquina chegar a desligar, ela **não** liga sozinha: confira a verificação
   diária (seção 5).
@@ -78,6 +82,7 @@ Crie o `.env` a partir do `.env.example` (`cp .env.example .env`) e preencha:
 | `JWT_KEY` | `openssl rand -hex 32` |
 | `DEMO_ACCOUNTS` | quantidade de contas demoNN e de convites de avaliador (padrão 5) |
 | `DEMO_PASSWORD` | senha única das contas demoNN, entregue aos avaliadores |
+| `DEMO_EXTRA_ACCOUNTS` | contas extras com o mesmo histórico, ex.: a da feira de ciências (`email\|senha\|nome`, separadas por `;`) |
 | `DOCKER_CONTEXT_AVALIACAO` | `default`: a avaliação roda no Docker Engine do sistema, que sobe no boot sem login (seção 1.1) |
 | `TUNNEL` | `funnel` (Tailscale, URL estável). `quick` só para teste ou plano B (seção 2) |
 | `ACESSO_RESTRITO` | `false` (padrão, aberto a qualquer pessoa) ou `true` (exige link de convite, seção 1.4) |
@@ -219,6 +224,11 @@ todos veem os mesmos dados, e um simulado feito por um não aparece para os outr
 
 `scripts/avaliacao.sh convites` mostra os links completos já com a conta de cada avaliador.
 
+**Senhas diferentes por conta:** `DEMO_PASSWORD` vale para as contas criadas por `DEMO_ACCOUNTS`. Para dar outra senha
+a uma conta demoNN, reduza `DEMO_ACCOUNTS` e declare as contas seguintes em `DEMO_EXTRA_ACCOUNTS`
+(`demo02@studyenem.com|senha|Estudante Demo 02;…`). Depois rode `scripts/avaliacao.sh up`. O seed aplica nome e
+senha às contas que já existem, sem tocar no histórico.
+
 - **O e-mail da T4 precisa ser diferente para cada avaliador.** A T4 cria uma conta nova. Se dois avaliadores
   usarem o mesmo e-mail e não houver reset entre eles, o segundo recebe "Já existe uma conta com este e-mail" e a
   tarefa se desvia do roteiro.
@@ -265,7 +275,7 @@ scripts/avaliacao.sh reset
 - **O reset:**
   - apaga todos os simulados;
   - apaga todas as contas criadas durante a avaliação (as da T4);
-  - restaura nome e senha das contas demoNN;
+  - restaura nome e senha das contas demoNN e das extras (`DEMO_EXTRA_ACCOUNTS`), que são preservadas;
   - recria os históricos.
 - **Ele não reinicia nenhum container:** a URL e os convites continuam valendo, e quem estiver logado numa conta
   demoNN continua logado.
@@ -293,7 +303,13 @@ scripts/avaliacao.sh ps              # estado e tempo no ar de cada serviço
 
 Comece sempre por `scripts/avaliacao.sh status`, que aponta a camada com problema.
 
-**Atalho para quase tudo:** `scripts/avaliacao.sh religar`. Ele sobe os serviços parados, reinicia a publicação e
+**Religação automática (ligada):** o timer `studyenem-vigia`, do systemd do usuário, testa a URL pública a
+cada minuto, também sem ninguém logado (*linger*). Depois de 2 falhas seguidas, ele roda o `religar`. A causa mais comum
+é a operadora trocar o IP público da internet: o Funnel não reencontra a máquina sozinho. Cada religação fica em
+`avaliacao-registro.log` ("vigia: …"). Sem internet na máquina, ele não faz nada. Ligar ou desligar:
+`scripts/avaliacao.sh vigia on|off`. Logs: `journalctl --user -u studyenem-vigia.service`.
+
+**Atalho manual para quase tudo:** `scripts/avaliacao.sh religar`. Ele sobe os serviços parados, reinicia a publicação e
 espera até a URL responder em todos os servidores de entrada (normalmente de 30 segundos a 4 minutos). Ele não toca
 no banco nem nas contas. Se a máquina estiver desligada, basta ligá-la: o Docker Engine sobe no boot e traz tudo de
 volta sozinho, sem login.
@@ -318,8 +334,7 @@ volta sozinho, sem login.
 - [ ] **Projeto aprovado pelo CEP-IFSP e CAAE preenchido no TCLE do formulário.** Sem isso, nada abaixo importa:
       nenhum convite sai.
 - [ ] `systemctl is-enabled docker` → `enabled`
-- [ ] Suspensão automática na tomada desligada (`preflight` sem falha)
-- [ ] Tampa aberta, ou `HandleLidSwitchExternalPower=ignore` aplicado com reboot
+- [ ] `scripts/avaliacao.sh vigia on`: suspensão e tampa bloqueadas (`preflight` sem falha)
 - [ ] Notebook na tomada, conectado por cabo se possível
 - [ ] `.env` com `POSTGRES_PASSWORD`, `JWT_KEY`, `DEMO_PASSWORD` e `TUNNEL=funnel`
 - [ ] Tailscale: máquina autenticada, nome do tailnet definitivo, HTTPS ligado, Funnel permitido, *key expiry*
@@ -333,6 +348,7 @@ volta sozinho, sem login.
 - [ ] `scripts/avaliacao.sh reset` rodado logo antes dos convites (registrado em `avaliacao-registro.log`)
 - [ ] Credenciais do formulário e do roteiro atualizadas: conta demoNN (e link de convite, se restrito) por avaliador, e-mail da
       T4 distinto
+- [ ] Religação automática ligada: `systemctl --user is-enabled studyenem-vigia.timer` → `enabled`
 - [ ] Monitor externo em `/health` (keyword `Healthy`) criado e alerta de teste recebido
 - [ ] `scripts/avaliacao.sh preflight` termina em "Tudo no ar."
 

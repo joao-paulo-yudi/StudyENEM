@@ -30,6 +30,8 @@ services:
       # Contas demo01..demoNN, todas com o mesmo histórico; a conta joao@ não é criada aqui.
       - Demo__Accounts=${DEMO_ACCOUNTS:-5}
       - Demo__Password=${DEMO_PASSWORD:?defina DEMO_PASSWORD no .env (veja .env.example)}
+      # Contas extras com o mesmo histórico (ex.: apresentação): "email|senha|nome;..." (veja .env.example).
+      - Demo__ExtraAccounts=${DEMO_EXTRA_ACCOUNTS:-}
 
   frontend:
     restart: unless-stopped
